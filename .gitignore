@@ -1,0 +1,30 @@
+# build output
+build/
+*.o
+*.so
+*.a
+
+# cmake (in case anyone runs it out-of-tree at the repo root)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+
+# editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# local notes / scratch
+.claude/
+CLAUDE.md
+HANDOVER.md
+HANDOFF.md

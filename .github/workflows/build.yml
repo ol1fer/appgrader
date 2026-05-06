@@ -1,0 +1,55 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux (Ubuntu 26.04 LTS, Plasma 6)
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:26.04
+    steps:
+      - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          # enable deb-src so build-dep works
+          sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config git ca-certificates \
+            qt6-base-dev qt6-base-private-dev \
+            libgl1-mesa-dev libegl-dev libxkbcommon-dev \
+            extra-cmake-modules \
+            kwin-dev
+          # pull in everything kwin itself depends on at build time, so its
+          # own cmake config can resolve all its find_dependency() calls.
+          apt-get build-dep -y kwin
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAPPGRADER_REQUIRE_KWIN=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Verify outputs
+        run: |
+          test -x build/appgrader
+          test -f build/src/kwin_effect/appgrader_lut.so
+          ls -la build/appgrader build/src/kwin_effect/appgrader_lut.so
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: appgrader-linux
+          path: |
+            build/appgrader
+            build/src/kwin_effect/appgrader_lut.so
+          if-no-files-found: error

@@ -1,0 +1,10 @@
+{
+    "KPlugin": {
+        "Authors": [{ "Name": "AppGrader" }],
+        "Category": "Misc",
+        "Description": "Live 3D LUT colour grade applied to the entire compositor output",
+        "EnabledByDefault": false,
+        "Name": "AppGrader Colour Grade",
+        "Version": "1.0"
+    }
+}

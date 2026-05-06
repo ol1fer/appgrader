@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # so the action can create the release
+
+jobs:
+  linux:
+    name: Linux release tarball
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:26.04
+    steps:
+      - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config git ca-certificates \
+            qt6-base-dev qt6-base-private-dev \
+            libgl1-mesa-dev libegl-dev libxkbcommon-dev \
+            extra-cmake-modules \
+            kwin-dev
+          apt-get build-dep -y kwin
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAPPGRADER_REQUIRE_KWIN=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Stage release tree
+        run: |
+          set -eux
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="appgrader-${VERSION}-linux-x86_64"
+          mkdir -p "$STAGE/bin" "$STAGE/lib/appgrader"
+          cp build/appgrader                          "$STAGE/bin/"
+          cp build/src/kwin_effect/appgrader_lut.so   "$STAGE/lib/appgrader/"
+          cp README.md LICENSE                        "$STAGE/" 2>/dev/null || true
+          tar czf "${STAGE}.tar.gz" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+          ls -la "${STAGE}.tar.gz"*
+          echo "TARBALL=${STAGE}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ env.TARBALL }}
+            ${{ env.TARBALL }}.sha256
