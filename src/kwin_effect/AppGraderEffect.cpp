@@ -97,43 +97,43 @@ void main()
     float lo = 0.5 / appgrader_lut_size;
     vec3 graded = texture3D(appgrader_lut, straight * ls + lo).rgb;
 
-    /* Bloom — single-pass approximation. Sample 16 points across a Poisson
-     * disc around the current pixel, bright-pass each (luma above threshold),
-     * average and add back. Gated on amount > 0 so the 16 extra texture taps
-     * are only paid when bloom is actually enabled. Radius slider maps to
-     * 2..16 px; beyond that the 16-tap density gets sparse and the glow
-     * starts to show ringing. */
+    /* Bloom — 7x7 Gaussian-weighted bright-pass, screen-blended over the
+     * graded image. Mimics the Photoshop workflow of (threshold → gaussian
+     * blur → screen-blend on top of the source). Each tap is bright-passed
+     * (luma above threshold), weighted by a 2D Gaussian by distance, summed
+     * and normalised by the total weight, then screen-blended so highlights
+     * lift softly without clipping additively. Radius slider maps to a max
+     * sample radius of 4..32 px; with 7 stops per axis the inter-sample gap
+     * stays small enough that bilinear filtering masks the discrete pattern.
+     * Gated on amount > 0 so the 49 extra taps are only paid when bloom
+     * is actually enabled. */
     if (appgrader_bloom_amount > 0.001) {
-        float bloomPx = mix(2.0, 16.0, clamp(appgrader_bloom_radius, 0.0, 1.0));
-        vec2 bStep = bloomPx * texelSize;
-        vec2 disc[16];
-        disc[0]  = vec2(-0.94201624, -0.39906216);
-        disc[1]  = vec2( 0.94558609, -0.76890725);
-        disc[2]  = vec2(-0.09418410, -0.92938870);
-        disc[3]  = vec2( 0.34495938,  0.29387760);
-        disc[4]  = vec2(-0.91588581,  0.45771432);
-        disc[5]  = vec2(-0.81544232, -0.87912464);
-        disc[6]  = vec2(-0.38277543,  0.27676845);
-        disc[7]  = vec2( 0.97484398,  0.75648379);
-        disc[8]  = vec2( 0.44323325, -0.97511554);
-        disc[9]  = vec2( 0.53742981, -0.47373420);
-        disc[10] = vec2(-0.26496911, -0.41893023);
-        disc[11] = vec2( 0.79197514,  0.19090188);
-        disc[12] = vec2(-0.24188840,  0.99706507);
-        disc[13] = vec2(-0.81409955,  0.91437590);
-        disc[14] = vec2( 0.19984126,  0.78641367);
-        disc[15] = vec2( 0.14383161, -0.14100790);
+        float maxR = mix(4.0, 32.0, clamp(appgrader_bloom_radius, 0.0, 1.0));
+        float sigma = maxR * 0.5;                 /* kernel covers ±2σ */
+        float invTwoSigSq = 1.0 / (2.0 * sigma * sigma);
+        float stepPx = maxR / 3.0;                /* 7 stops over [-maxR, +maxR] */
         float thr = clamp(appgrader_bloom_threshold, 0.0, 0.999);
         float headroom = max(1.0 - thr, 0.001);
+
         vec3 bloomSum = vec3(0.0);
-        for (int i = 0; i < 16; i++) {
-            vec3 s = clamp(texture2D(sampler, texcoord0 + disc[i] * bStep).rgb / a, 0.0, 1.0);
-            float lum = dot(s, vec3(0.2126, 0.7152, 0.0722));
-            float w = max(lum - thr, 0.0) / headroom;
-            bloomSum += s * w;
+        float wSum = 0.0;
+        for (int j = -3; j <= 3; j++) {
+            for (int i = -3; i <= 3; i++) {
+                vec2 offPx = vec2(float(i), float(j)) * stepPx;
+                float r2 = dot(offPx, offPx);
+                float w = exp(-r2 * invTwoSigSq);
+                vec3 s = clamp(texture2D(sampler, texcoord0 + offPx * texelSize).rgb / a, 0.0, 1.0);
+                float lum = dot(s, vec3(0.2126, 0.7152, 0.0722));
+                float bp = max(lum - thr, 0.0) / headroom;
+                bloomSum += s * bp * w;
+                wSum += w;
+            }
         }
-        bloomSum *= (1.0 / 16.0);
-        graded = clamp(graded + bloomSum * appgrader_bloom_amount * 1.5, 0.0, 1.0);
+        bloomSum /= max(wSum, 0.001);
+        /* Screen blend: out = 1 - (1-base)(1-bloom*amount). Bright pixels
+         * lift toward 1.0 instead of overshooting it. */
+        vec3 bloomLayer = clamp(bloomSum * appgrader_bloom_amount * 1.5, 0.0, 1.0);
+        graded = 1.0 - (1.0 - graded) * (1.0 - bloomLayer);
     }
 
     /* Vignette — screen-space distance from centre. */
